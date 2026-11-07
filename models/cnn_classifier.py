@@ -91,10 +91,10 @@ def configure_gpu():
 EPOCHS        = 80
 BATCH_SIZE_GPU = 128   # large batch saturates RTX 3070 Tensor Cores
 BATCH_SIZE_CPU = 64
-LR_INITIAL    = 1e-3
+LR_INITIAL    = 5e-4    # gentler initial LR prevents jumping over subtle finger distinction features
 LR_MIN        = 1e-6
-DROPOUT_RATE  = 0.4
-PATIENCE      = 8
+DROPOUT_RATE  = 0.35    # balanced regularization
+PATIENCE      = 15      # allows optimizer to break through plateaus without premature cutoff
 RESULTS_DIR   = Path(__file__).resolve().parent / "results"
 RESULTS_DIR.mkdir(exist_ok=True)
 MODEL_PATH    = str(RESULTS_DIR / "cnn_best_model.keras")
@@ -157,9 +157,10 @@ def build_cnn(input_shape, n_classes, dropout_rate):
 
     # ── Augmentation (Keras layers - managed by the model, not by ds.map) ──
     x = layers.RandomFlip("horizontal")(inp)
-    x = layers.RandomRotation(0.08)(x)      # +/- ~29 deg
-    x = layers.RandomZoom(0.10)(x)          # +/- 10 %
-    x = layers.RandomContrast(0.15)(x)      # random contrast shift
+    x = layers.RandomRotation(0.12)(x)      # +/- ~43 deg tolerance
+    x = layers.RandomZoom(0.12)(x)          # +/- 12 % for camera distance variance
+    x = layers.RandomContrast(0.20)(x)      # robust against varying room lighting
+    x = layers.RandomTranslation(0.08, 0.08)(x)  # robust against slight hand-crop decentering
 
     # ── Block 1 ──────────────────────────────────────────────────────────────
     x = layers.Conv2D(32, 3, padding="same", use_bias=False)(x)
