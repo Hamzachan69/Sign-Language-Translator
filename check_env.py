@@ -149,9 +149,9 @@ except Exception as e:
 section("5. Dataset")
 from pathlib import Path
 
-dataset_root = Path("dataset") / \
-    "ASL-HG American Sign Language Hand Gesture Image D" / \
-    "ASL_HG_36000" / "asl_processed"
+p1 = Path("dataset") / "asl_processed"
+p2 = Path("dataset") / "ASL-HG American Sign Language Hand Gesture Image D" / "ASL_HG_36000" / "asl_processed"
+dataset_root = p1 if p1.exists() else p2
 
 checks = {
     "asl_processed/train" : dataset_root / "train",

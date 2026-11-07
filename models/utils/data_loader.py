@@ -9,9 +9,12 @@ import cv2
 from pathlib import Path
 
 # ─── Dataset path ────────────────────────────────────────────────────────────
-DATASET_ROOT = Path(__file__).resolve().parents[2] / "dataset" / \
+p1 = Path(__file__).resolve().parents[2] / "dataset" / "asl_processed"
+p2 = Path(__file__).resolve().parents[2] / "dataset" / \
     "ASL-HG American Sign Language Hand Gesture Image D" / \
     "ASL_HG_36000" / "asl_processed"
+
+DATASET_ROOT = p1 if p1.exists() else p2
 
 TRAIN_DIR = DATASET_ROOT / "train"
 TEST_DIR  = DATASET_ROOT / "test"
