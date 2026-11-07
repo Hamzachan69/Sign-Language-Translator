@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta content="width=device-width, initial-scale=1.0" name="viewport">
+  <title>Live ASL Translator - AI Recognition</title>
+  <link href="https://fonts.googleapis.com" rel="preconnect">
+  <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "error":"#ffb4ab","surface-bright":"#31394d","surface-container":"#171f33",
+            "primary-fixed-dim":"#c0c1ff","on-error-container":"#ffdad6",
+            "primary-container":"#8083ff","tertiary-fixed-dim":"#ffb95f",
+            "on-surface-variant":"#c7c4d7","secondary-container":"#00a572",
+            "surface-tint":"#c0c1ff","on-primary-fixed-variant":"#2f2ebe",
+            "tertiary-container":"#ca8100","background":"#0b1326",
+            "on-tertiary":"#472a00","secondary":"#4edea3","primary":"#c0c1ff",
+            "primary-fixed":"#e1e0ff","secondary-fixed":"#6ffbbe",
+            "on-tertiary-fixed":"#2a1700","on-surface":"#dae2fd",
+            "on-primary-container":"#0d0096","surface-dim":"#0b1326",
+            "surface":"#0b1326","tertiary":"#ffb95f","outline":"#908fa0",
+            "on-secondary":"#003824","surface-container-highest":"#2d3449",
+            "inverse-primary":"#494bd6","on-background":"#dae2fd",
+            "surface-container-low":"#131b2e","surface-variant":"#2d3449",
+            "inverse-on-surface":"#283044","on-secondary-container":"#00311f",
+            "tertiary-fixed":"#ffddb8","on-primary":"#1000a9",
+            "inverse-surface":"#dae2fd","on-secondary-fixed":"#002113",
+            "secondary-fixed-dim":"#4edea3","on-tertiary-container":"#3e2400",
+            "on-tertiary-fixed-variant":"#653e00","on-primary-fixed":"#07006c",
+            "on-secondary-fixed-variant":"#005236","surface-container-lowest":"#060e20",
+            "surface-container-high":"#222a3d","on-error":"#690005",
+            "error-container":"#93000a","outline-variant":"#464554"
+          },
+          fontFamily: { "body": ["Inter"], "mono": ["JetBrains Mono"] },
+        }
+      }
+    }
+  </script>
+  <style>
+    html, body { margin: 0; padding: 0; }
+    body { overscroll-behavior: none; }
+    ::-webkit-scrollbar { display: none; }
+    @keyframes glow-pulse {
+      0%, 100% { box-shadow: 0 0 8px rgba(78, 222, 163, 0.4); }
+      50% { box-shadow: 0 0 18px rgba(78, 222, 163, 0.7); }
+    }
+    .letter-active { animation: glow-pulse 1.2s ease-in-out infinite; }
+    .camera-mirror { transform: scaleX(-1); }
+    .overlay-pop {
+      animation: pop-confirm 0.22s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    @keyframes pop-confirm {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.15); }
+      100% { transform: scale(1); }
+    }
+  </style>
+</head>
+<body class="bg-surface font-body text-[15px] text-on-surface antialiased">
+
+<main class="relative bg-surface min-h-screen flex flex-col">
+  <!-- ================================================================ -->
+  <!--  TOP BAR                                                         -->
+  <!-- ================================================================ -->
+  <header class="h-16 bg-surface-container-low px-4 sm:px-5 flex items-center justify-between border-b border-surface-container-high/50 select-none shrink-0 gap-3">
+    <!-- Left: Back + Status -->
+    <div class="flex items-center gap-3">
+      <a href="/" class="w-9 h-9 rounded-lg bg-surface-container hover:bg-surface-container-high flex items-center justify-center transition-colors" title="Back to Home">
+        <span class="material-symbols-outlined text-lg text-on-surface-variant">arrow_back</span>
+      </a>
+      <div class="flex items-center gap-2 text-on-surface font-semibold text-base whitespace-nowrap">
+        <span class="material-symbols-outlined text-primary text-xl">sign_language</span>
+        <span class="hidden sm:inline">ASL Translator</span>
+      </div>
+      <!-- Live status pill -->
+      <div id="statusPill" class="flex items-center gap-1.5 px-2.5 py-1 bg-surface-container rounded-full font-mono text-xs border border-surface-container-high/40 text-outline">
+        <span id="statusDot" class="w-2 h-2 rounded-full bg-outline"></span>
+        <span id="statusText">Starting...</span>
+      </div>
+    </div>
+
+    <!-- Center/Right: Model Selection + Hold Slider + FPS + Fullscreen -->
+    <div class="flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
+      <!-- Model Dropdown -->
+      <div class="flex items-center gap-1.5 bg-surface-container px-2.5 py-1 rounded-lg border border-surface-container-high/40">
+        <span class="material-symbols-outlined text-primary text-sm">psychology</span>
+        <label for="modelSelect" class="text-xs font-mono text-outline select-none hidden md:inline">Model:</label>
+        <select id="modelSelect" class="bg-surface-container-high text-on-surface text-xs font-mono rounded px-2 py-1 border-0 focus:ring-1 focus:ring-primary cursor-pointer outline-none">
+          <option value="cnn" selected>CNN (Deep Learning - Default)</option>
+          <option value="knn">KNN (PCA + K-Nearest Neighbors)</option>
+          <option value="kmeans">K-Means (Clustering)</option>
+        </select>
+      </div>
+
+      <!-- Hold-to-Confirm Duration Slider -->
+      <div class="flex items-center gap-1.5 bg-surface-container px-2.5 py-1 rounded-lg border border-surface-container-high/40" title="Hold duration to confirm letter (0.8s - 1.5s)">
+        <span class="material-symbols-outlined text-secondary text-sm">timer</span>
+        <span id="holdValueDisplay" class="font-mono text-xs text-outline select-none min-w-[30px]">1.0s</span>
+        <input type="range" id="holdSlider" min="0.8" max="1.5" step="0.1" value="1.0" class="w-16 h-1.5 bg-surface-container-highest rounded-lg appearance-none cursor-pointer accent-secondary">
+      </div>
+
+      <!-- FPS Display -->
+      <div id="fpsDisplay" class="px-2.5 py-1 rounded bg-surface-container font-mono text-xs text-outline border border-surface-container-high/40 hidden sm:block">
+        -- FPS
+      </div>
+
+      <!-- Fullscreen button -->
+      <button onclick="toggleFullscreen()" class="w-9 h-9 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface flex items-center justify-center transition-colors" title="Toggle Fullscreen">
+        <span class="material-symbols-outlined text-lg">fullscreen</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ================================================================ -->
+  <!--  CAMERA VIEWPORT                                                 -->
+  <!-- ================================================================ -->
+  <div class="flex-1 p-3 sm:p-4 flex flex-col gap-3 justify-center items-center bg-surface-dim min-h-0">
+    <div class="relative w-full max-w-[1040px] aspect-[16/10] bg-surface-container-lowest rounded-2xl overflow-hidden shadow-2xl border border-surface-container-high/60">
+
+      <!-- Hidden video element (raw camera stream) -->
+      <video id="cameraVideo" class="hidden" autoplay playsinline muted></video>
+
+      <!-- Visible canvas (mirrored via CSS transform: scaleX(-1)) -->
+      <canvas id="cameraCanvas" class="w-full h-full object-cover camera-mirror"></canvas>
+
+      <!-- Overlay HUD (top of video) -->
+      <div class="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none select-none">
+        <div class="flex items-center gap-2 pointer-events-auto">
+          <!-- Tracking badge -->
+          <span id="trackingBadge" class="px-2.5 py-1 rounded-full bg-surface-container-lowest/80 backdrop-blur-md font-mono text-xs flex items-center gap-1.5 shadow-md border border-outline-variant/30 text-outline">
+            <span class="w-2 h-2 rounded-full bg-outline"></span>
+            NO HAND
+          </span>
+
+          <!-- Handedness label -->
+          <span id="handednessBadge" class="px-2 py-1 rounded-full bg-surface-container-lowest/80 backdrop-blur-md font-mono text-xs items-center gap-1 shadow-md border border-outline-variant/30 text-outline hidden">
+            --
+          </span>
+        </div>
+
+        <!-- Confidence HUD -->
+        <div class="flex items-center gap-1.5 bg-surface-container-lowest/80 backdrop-blur-md px-2.5 py-1 rounded-lg pointer-events-auto font-mono text-xs text-outline border border-surface-container-high/40">
+          <span>Confidence:</span>
+          <strong id="confidenceDisplay" class="text-on-surface font-semibold">--</strong>
+        </div>
+      </div>
+
+      <!-- Detected Letter Overlay with Hold Progress Ring (Bottom Right) -->
+      <div id="letterOverlay" class="absolute bottom-4 right-4 w-24 h-24 rounded-2xl bg-surface-container-lowest/90 backdrop-blur-md flex flex-col items-center justify-center border border-secondary/30 shadow-2xl transition-all duration-150 opacity-0 select-none pointer-events-none">
+        <!-- SVG Progress Ring -->
+        <div class="relative w-16 h-16 flex items-center justify-center">
+          <svg class="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 100 100">
+            <!-- Background circle -->
+            <circle cx="50" cy="50" r="40" stroke="rgba(255,255,255,0.12)" stroke-width="7" fill="transparent" />
+            <!-- Progress circle -->
+            <circle id="progressRing" cx="50" cy="50" r="40" stroke="#4edea3" stroke-width="7" fill="transparent"
+                    stroke-dasharray="251.32" stroke-dashoffset="251.32" stroke-linecap="round"
+                    class="transition-all duration-75 origin-center" />
+          </svg>
+          <!-- Center Letter -->
+          <span id="bigLetter" class="text-3xl font-black text-secondary font-mono z-10">-</span>
+        </div>
+        <!-- Progress percentage / Hold prompt -->
+        <span id="holdPrompt" class="text-[10px] font-mono text-outline mt-0.5 uppercase tracking-wider">Hold</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!--  BOTTOM: Letter Buffer + Sentence Accumulator                    -->
+  <!-- ================================================================ -->
+  <footer class="bg-surface-container-low border-t border-surface-container-high/60 p-4 flex flex-col gap-3 shrink-0">
+
+    <!-- TIER 1: Letter-by-letter live buffer -->
+    <div class="rounded-xl bg-surface-container p-3 border border-surface-container-high/50 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-md">
+      <div class="flex items-center gap-3 flex-wrap">
+        <!-- Active buffer label -->
+        <div class="flex items-center gap-2 px-3 py-1 rounded-full bg-secondary/15 text-secondary font-mono text-xs border border-secondary/30 shadow-[0_0_10px_rgba(78,222,163,0.25)]">
+          <span class="w-2 h-2 rounded-full bg-secondary animate-ping"></span>
+          <span class="font-bold tracking-wider uppercase">Building Word</span>
+        </div>
+        <!-- Letter tiles container -->
+        <div id="letterBuffer" class="flex items-center gap-1.5 flex-wrap min-h-[36px]">
+          <!-- Letters injected dynamically -->
+          <span class="w-2 h-7 bg-secondary/60 rounded animate-pulse ml-0.5"></span>
+        </div>
+      </div>
+
+      <!-- Active Model & Latency Display -->
+      <div class="flex items-center gap-3 text-outline font-mono text-xs">
+        <span class="flex items-center gap-1.5">
+          <span class="text-outline">Engine:</span>
+          <strong id="activeModelTag" class="px-2 py-0.5 rounded bg-surface-container-high text-primary border border-surface-container-high/60 uppercase">CNN</strong>
+        </span>
+        <span class="flex items-center gap-1">
+          <span class="material-symbols-outlined text-secondary text-sm">bolt</span>
+          <span>Latency:</span>
+          <strong id="latencyDisplay" class="text-on-surface">--</strong>
+        </span>
+      </div>
+    </div>
+
+    <!-- TIER 2: Sentence stream & Action Controls -->
+    <div class="rounded-xl bg-surface-container-lowest p-3 border border-surface-container-high/60 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-lg">
+      <div class="flex-1 min-w-0 pr-3">
+        <div class="flex items-center gap-1 font-mono text-xs mb-1">
+          <span class="material-symbols-outlined text-primary text-base">chat</span>
+          <span class="text-primary font-bold uppercase tracking-wider">Sentence</span>
+        </div>
+        <p id="sentenceText" class="text-lg text-on-surface font-medium leading-relaxed font-body truncate select-text">
+          Start signing to build a sentence...
+        </p>
+      </div>
+
+      <!-- Action buttons -->
+      <div class="flex items-center gap-2 shrink-0 flex-wrap">
+        <!-- Speak (TTS) -->
+        <button onclick="speakSentence()" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface-container hover:bg-surface-container-high text-secondary hover:text-secondary-fixed transition-all font-semibold text-xs border border-surface-container-high/40 shadow-sm active:scale-95" title="Speak sentence aloud">
+          <span class="material-symbols-outlined text-base">volume_up</span>
+          <span>Speak</span>
+        </button>
+
+        <!-- Space -->
+        <button onclick="addSpace()" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-tertiary-container hover:bg-tertiary text-on-tertiary-container font-semibold text-xs transition-all shadow-md active:scale-95" title="Complete current word and add space">
+          <span class="material-symbols-outlined text-base">space_bar</span>
+          <span>Space</span>
+        </button>
+
+        <!-- Backspace -->
+        <button onclick="backspace()" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface transition-all font-semibold text-xs border border-surface-container-high/40 shadow-sm active:scale-95" title="Delete last letter or word">
+          <span class="material-symbols-outlined text-base">backspace</span>
+          <span>Backspace</span>
+        </button>
+
+        <!-- Clear Sentence -->
+        <button onclick="clearAll()" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface-container hover:bg-error/20 hover:text-error text-on-surface-variant transition-colors font-mono text-xs border border-surface-container-high/40" title="Clear current word and sentence">
+          <span class="material-symbols-outlined text-base">delete_sweep</span>
+          <span>Clear</span>
+        </button>
+
+        <!-- Copy -->
+        <button onclick="copySentence()" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface transition-colors font-mono text-xs border border-surface-container-high/40" id="copyBtn" title="Copy sentence to clipboard">
+          <span class="material-symbols-outlined text-base">content_copy</span>
+          <span>Copy</span>
+        </button>
+      </div>
+    </div>
+  </footer>
+</main>
+
+<!-- ================================================================ -->
+<!--  JAVASCRIPT: Camera + Engine + Accumulation State Machine        -->
+<!-- ================================================================ -->
+<script>
+(function() {
+  // ── DOM Elements ──
+  const video             = document.getElementById("cameraVideo");
+  const canvas            = document.getElementById("cameraCanvas");
+  const ctx               = canvas.getContext("2d");
+  const statusPill        = document.getElementById("statusPill");
+  const statusDot         = document.getElementById("statusDot");
+  const statusText        = document.getElementById("statusText");
+  const trackingBadge     = document.getElementById("trackingBadge");
+  const handednessBadge   = document.getElementById("handednessBadge");
+  const confidenceEl      = document.getElementById("confidenceDisplay");
+  const latencyEl         = document.getElementById("latencyDisplay");
+  const fpsEl             = document.getElementById("fpsDisplay");
+  const activeModelTag    = document.getElementById("activeModelTag");
+  const modelSelect       = document.getElementById("modelSelect");
+  const holdSlider        = document.getElementById("holdSlider");
+  const holdValueDisplay  = document.getElementById("holdValueDisplay");
+  const letterOverlay     = document.getElementById("letterOverlay");
+  const bigLetter         = document.getElementById("bigLetter");
+  const progressRing      = document.getElementById("progressRing");
+  const holdPrompt        = document.getElementById("holdPrompt");
+  const letterBuffer      = document.getElementById("letterBuffer");
+  const sentenceText      = document.getElementById("sentenceText");
+
+  // ── State Variables ──
+  let currentWord         = [];   // Letters of current word, e.g. ['H', 'E', 'L', 'L', 'O']
+  let sentence            = "";   // Committed sentence, e.g. "HELLO WORLD"
+  let sending             = false;
+  let frameCount          = 0;
+  let lastFpsTime         = performance.now();
+  let lastPrediction      = null;
+
+  // ── Accumulator & Smoothing State ──
+  const WINDOW_SIZE       = 8;    // 8 frames sliding buffer for debouncing
+  const CONSISTENCY_REQ   = 0.75; // ≥ 75% consistency required to make a letter active
+  let predictionBuffer    = [];   // Stores last N predictions
+
+  let holdDurationMs      = 1000; // Hold duration: 800ms - 1500ms (default 1000ms)
+  let currentCandidate    = null; // Candidate letter currently accumulating hold time
+  let holdStartTime       = null; // Timestamp when hold started
+  let committedCandidate  = null; // Prevents spamming the same letter until user changes gesture/resets
+
+  let noHandStartTime     = null; // Timestamp when hand was lost
+  const NO_HAND_SPACE_MS  = 1500; // > 1.5s no hand -> auto-commit word to sentence
+
+  const SEND_INTERVAL     = 80;   // ~12 fps frame capture
+  const RING_CIRCUMFERENCE= 251.32; // 2 * PI * 40
+
+  // ── Slider Listener ──
+  holdSlider.addEventListener("input", function() {
+    const val = parseFloat(this.value);
+    holdDurationMs = Math.round(val * 1000);
+    holdValueDisplay.textContent = val.toFixed(1) + "s";
+  });
+
+  // ── MediaPipe Hand Connections for Skeleton ──
+  const HAND_CONNECTIONS = [
+    [0,1],[1,2],[2,3],[3,4],        // Thumb
+    [0,5],[5,6],[6,7],[7,8],        // Index
+    [0,9],[9,10],[10,11],[11,12],   // Middle
+    [0,13],[13,14],[14,15],[15,16], // Ring
+    [0,17],[17,18],[18,19],[19,20], // Pinky
+    [5,9],[9,13],[13,17],           // Palm cross
+  ];
+
+  // Finger colors matching HandTracker
+  const FINGER_COLORS = {
+    0:  "#FFFFFF",                                          // Wrist
+    1:  "#FF8000", 2:  "#FF8000", 3:  "#FF8000", 4:  "#FF8000",  // Thumb (orange)
+    5:  "#00FF80", 6:  "#00FF80", 7:  "#00FF80", 8:  "#00FF80",  // Index (green)
+    9:  "#FF0080", 10: "#FF0080", 11: "#FF0080", 12: "#FF0080", // Middle (rose)
+    13: "#8000FF", 14: "#8000FF", 15: "#8000FF", 16: "#8000FF", // Ring (purple)
+    17: "#00E5FF", 18: "#00E5FF", 19: "#00E5FF", 20: "#00E5FF", // Pinky (cyan)
+  };
+
+  // ── Web Audio API Confirmation Tone ──
+  function playConfirmationTone() {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const actx = new AudioCtx();
+      const osc = actx.createOscillator();
+      const gain = actx.createGain();
+
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(784, actx.currentTime); // G5
+      osc.frequency.exponentialRampToValueAtTime(1046.5, actx.currentTime + 0.12); // C6
+
+      gain.gain.setValueAtTime(0.18, actx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + 0.16);
+
+      osc.connect(gain);
+      gain.connect(actx.destination);
+      osc.start();
+      osc.stop(actx.currentTime + 0.16);
+    } catch (e) {
+      // Audio autoplay policy fallback
+    }
+  }
+
+  // ── Start Camera ──
+  async function startCamera() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }
+      });
+      video.srcObject = stream;
+      await video.play();
+
+      canvas.width  = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
+
+      setStatus("live", "Live");
+      requestAnimationFrame(renderLoop);
+      setInterval(sendFrame, SEND_INTERVAL);
+
+    } catch (err) {
+      console.error("Camera error:", err);
+      setStatus("error", "Camera Error");
+    }
+  }
+
+  // ── Render Loop ──
+  function renderLoop() {
+    // 1. Draw raw video frame onto canvas.
+    // The canvas itself has CSS class 'camera-mirror' (transform: scaleX(-1)),
+    // so both the video and any landmarks drawn on it flip naturally on screen.
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // 2. Draw landmarks if detected
+    if (lastPrediction && lastPrediction.hand_detected && lastPrediction.landmarks) {
+      drawLandmarks(lastPrediction.landmarks);
+    }
+
+    // 3. FPS counter
+    frameCount++;
+    const now = performance.now();
+    if (now - lastFpsTime >= 1000) {
+      fpsEl.textContent = frameCount + " FPS";
+      frameCount = 0;
+      lastFpsTime = now;
+    }
+
+    requestAnimationFrame(renderLoop);
+  }
+
+  // ── Draw Hand Skeleton on Canvas ──
+  function drawLandmarks(landmarks) {
+    const w = canvas.width;
+    const h = canvas.height;
+
+    // Use raw normalized coordinates scaled to width/height without subtracting from w.
+    // CSS .camera-mirror mirrors the entire canvas for the user view.
+    const pts = landmarks.map(lm => ({
+      x: lm.x * w,
+      y: lm.y * h,
+    }));
+
+    // Draw bones
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = "rgba(78, 222, 163, 0.75)";
+    for (const [i, j] of HAND_CONNECTIONS) {
+      if (pts[i] && pts[j]) {
+        ctx.beginPath();
+        ctx.moveTo(pts[i].x, pts[i].y);
+        ctx.lineTo(pts[j].x, pts[j].y);
+        ctx.stroke();
+      }
+    }
+
+    // Draw joints
+    for (let idx = 0; idx < pts.length; idx++) {
+      const p = pts[idx];
+      const color = FINGER_COLORS[idx] || "#4edea3";
+
+      // Glow halo
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 8, 0, 2 * Math.PI);
+      ctx.fillStyle = color + "33";
+      ctx.fill();
+
+      // Center dot
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 4, 0, 2 * Math.PI);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = "#0b1326";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+
+  // ── Send Frame to Server for Prediction ──
+  async function sendFrame() {
+    if (sending || video.readyState < 2) return;
+    sending = true;
+
+    try {
+      // Capture frame as JPEG at 320x240 for fast networking & processing
+      const tmpCanvas = document.createElement("canvas");
+      tmpCanvas.width  = 320;
+      tmpCanvas.height = 240;
+      const tmpCtx = tmpCanvas.getContext("2d");
+      tmpCtx.drawImage(video, 0, 0, 320, 240);
+      const dataUrl = tmpCanvas.toDataURL("image/jpeg", 0.75);
+
+      const chosenModel = modelSelect ? modelSelect.value : "cnn";
+
+      const resp = await fetch("/api/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          frame: dataUrl,
+          model: chosenModel
+        }),
+      });
+
+      const data = await resp.json();
+      lastPrediction = data;
+      handlePrediction(data);
+
+    } catch (err) {
+      console.error("Prediction error:", err);
+    }
+
+    sending = false;
+  }
+
+  // ── Update Progress Ring ──
+  function updateProgressRing(progress) {
+    const clamped = Math.max(0, Math.min(1.0, progress));
+    const offset = RING_CIRCUMFERENCE * (1.0 - clamped);
+    progressRing.style.strokeDashoffset = offset;
+
+    if (clamped >= 1.0) {
+      progressRing.setAttribute("stroke", "#6ffbbe");
+      holdPrompt.textContent = "Confirmed!";
+      holdPrompt.className = "text-[10px] font-mono text-secondary mt-0.5 uppercase tracking-wider font-bold";
+    } else if (clamped > 0) {
+      progressRing.setAttribute("stroke", "#4edea3");
+      holdPrompt.textContent = Math.round(clamped * 100) + "%";
+      holdPrompt.className = "text-[10px] font-mono text-secondary mt-0.5 uppercase tracking-wider";
+    } else {
+      progressRing.setAttribute("stroke", "#4edea3");
+      holdPrompt.textContent = "Hold";
+      holdPrompt.className = "text-[10px] font-mono text-outline mt-0.5 uppercase tracking-wider";
+    }
+  }
+
+  // ── Handle Prediction Result (State Machine) ──
+  function handlePrediction(data) {
+    const now = performance.now();
+    latencyEl.textContent = (data.latency_ms || 0) + "ms";
+
+    if (data.active_model) {
+      activeModelTag.textContent = data.active_model.toUpperCase();
+    }
+
+    if (data.hand_detected) {
+      noHandStartTime = null;
+
+      // Update Tracking Badge
+      trackingBadge.innerHTML = `
+        <span class="w-2 h-2 rounded-full bg-secondary animate-ping"></span>
+        TRACKING ACTIVE
+      `;
+      trackingBadge.classList.remove("text-outline", "border-outline-variant/30");
+      trackingBadge.classList.add("text-secondary", "border-secondary/20");
+
+      // Update Handedness Badge
+      if (data.handedness && data.handedness.label) {
+        handednessBadge.textContent = `${data.handedness.label.toUpperCase()} (${Math.round(data.handedness.score * 100)}%)`;
+        handednessBadge.classList.remove("hidden");
+        handednessBadge.classList.add("flex");
+      }
+
+      // Update Confidence Display
+      const conf = (data.confidence || 0);
+      confidenceEl.textContent = (conf * 100).toFixed(1) + "%";
+      confidenceEl.className = conf > 0.7 ? "text-secondary font-semibold" : (conf > 0.4 ? "text-tertiary font-semibold" : "text-outline");
+
+      // 1. Debouncing / Sliding Window
+      if (data.letter && conf >= 0.40) {
+        predictionBuffer.push(data.letter);
+      } else {
+        predictionBuffer.push(null);
+      }
+      if (predictionBuffer.length > WINDOW_SIZE) {
+        predictionBuffer.shift();
+      }
+
+      // Count occurrences
+      const counts = {};
+      for (const l of predictionBuffer) {
+        if (l) counts[l] = (counts[l] || 0) + 1;
+      }
+
+      let topLetter = null;
+      let topCount = 0;
+      for (const [letter, count] of Object.entries(counts)) {
+        if (count > topCount) {
+          topCount = count;
+          topLetter = letter;
+        }
+      }
+
+      // A letter is active if it maintains >= 75% consistency in the buffer
+      const isConsistent = (predictionBuffer.length >= 4) && ((topCount / predictionBuffer.length) >= CONSISTENCY_REQ);
+      const stableLetter = isConsistent ? topLetter : null;
+
+      if (stableLetter) {
+        // Show letter on overlay immediately
+        bigLetter.textContent = stableLetter;
+        letterOverlay.classList.remove("opacity-0");
+        letterOverlay.classList.add("opacity-100");
+
+        // If user changed gesture to a different letter, unlock
+        if (committedCandidate && committedCandidate !== stableLetter) {
+          committedCandidate = null;
+        }
+
+        if (stableLetter === committedCandidate) {
+          // Letter was already confirmed; waiting for user to change gesture
+          updateProgressRing(0);
+          holdPrompt.textContent = "Change gesture";
+          holdPrompt.className = "text-[9px] font-mono text-outline mt-0.5 uppercase tracking-wider";
+          currentCandidate = null;
+          holdStartTime = null;
+        } else {
+          // Accumulate hold time for candidate
+          if (currentCandidate !== stableLetter) {
+            currentCandidate = stableLetter;
+            holdStartTime = now;
+            updateProgressRing(0);
+          } else {
+            const elapsed = now - holdStartTime;
+            const progress = Math.min(1.0, elapsed / holdDurationMs);
+            updateProgressRing(progress);
+
+            if (elapsed >= holdDurationMs) {
+              // Confirm letter
+              commitLetter(stableLetter);
+              committedCandidate = stableLetter;
+              currentCandidate = null;
+              holdStartTime = null;
+              updateProgressRing(0);
+            }
+          }
+        }
+      } else {
+        // Inconsistent or fluctuating letter
+        currentCandidate = null;
+        holdStartTime = null;
+        updateProgressRing(0);
+
+        if (data.letter) {
+          bigLetter.textContent = data.letter;
+          letterOverlay.classList.remove("opacity-0");
+          letterOverlay.classList.add("opacity-100");
+          holdPrompt.textContent = "Stabilizing";
+          holdPrompt.className = "text-[9px] font-mono text-tertiary mt-0.5 uppercase tracking-wider";
+        }
+      }
+
+    } else {
+      // ── NO HAND DETECTED ──
+      predictionBuffer = [];
+      currentCandidate = null;
+      holdStartTime = null;
+      committedCandidate = null; // Removing hand resets lock
+      updateProgressRing(0);
+
+      trackingBadge.innerHTML = `
+        <span class="w-2 h-2 rounded-full bg-outline"></span>
+        NO HAND
+      `;
+      trackingBadge.classList.add("text-outline", "border-outline-variant/30");
+      trackingBadge.classList.remove("text-secondary", "border-secondary/20");
+      handednessBadge.classList.add("hidden");
+      handednessBadge.classList.remove("flex");
+
+      confidenceEl.textContent = "--";
+      confidenceEl.className = "text-on-surface";
+      letterOverlay.classList.add("opacity-0");
+
+      // Auto-space after no hand for > 1.5 seconds
+      if (noHandStartTime === null) {
+        noHandStartTime = now;
+      } else if (now - noHandStartTime >= NO_HAND_SPACE_MS) {
+        if (currentWord.length > 0) {
+          commitWord();
+        }
+        noHandStartTime = null;
+      }
+    }
+  }
+
+  // ── Word Building & Letter Commit ──
+  function commitLetter(letter) {
+    currentWord.push(letter);
+    renderLetterBuffer();
+
+    // Audible confirmation
+    playConfirmationTone();
+
+    // Visual pop animation on letter overlay
+    letterOverlay.classList.remove("overlay-pop");
+    void letterOverlay.offsetWidth; // trigger reflow
+    letterOverlay.classList.add("overlay-pop");
+  }
+
+  function renderLetterBuffer() {
+    let html = "";
+    for (let i = 0; i < currentWord.length; i++) {
+      const isLast = (i === currentWord.length - 1);
+      if (isLast) {
+        html += `<span class="w-9 h-9 rounded-lg bg-secondary text-on-secondary flex items-center justify-center font-mono text-lg font-extrabold letter-active shadow-md">${currentWord[i]}</span>`;
+      } else {
+        html += `<span class="w-9 h-9 rounded-lg bg-surface-container-high text-secondary flex items-center justify-center font-mono text-lg font-bold border border-secondary/30 shadow-sm">${currentWord[i]}</span>`;
+      }
+    }
+    // Blinking cursor
+    html += `<span class="w-2 h-7 bg-secondary/60 rounded animate-pulse ml-0.5"></span>`;
+    letterBuffer.innerHTML = html;
+  }
+
+  // ── Exposed Sentence & Word Controls ──
+  window.commitWord = function() {
+    if (currentWord.length === 0) return;
+    const word = currentWord.join("");
+    sentence += (sentence.length > 0 ? " " : "") + word;
+    currentWord = [];
+    renderLetterBuffer();
+    sentenceText.textContent = sentence || "Start signing to build a sentence...";
+  };
+
+  window.addSpace = function() {
+    if (currentWord.length > 0) {
+      commitWord();
+    } else if (sentence.length > 0 && !sentence.endsWith(" ")) {
+      sentence += " ";
+      sentenceText.textContent = sentence;
+    }
+  };
+
+  window.backspace = function() {
+    if (currentWord.length > 0) {
+      currentWord.pop();
+      renderLetterBuffer();
+    } else if (sentence.length > 0) {
+      const trimmed = sentence.trim();
+      const lastSpaceIdx = trimmed.lastIndexOf(" ");
+      if (lastSpaceIdx === -1) {
+        sentence = "";
+      } else {
+        sentence = trimmed.substring(0, lastSpaceIdx);
+      }
+      sentenceText.textContent = sentence || "Start signing to build a sentence...";
+    }
+  };
+
+  window.clearAll = function() {
+    currentWord = [];
+    sentence = "";
+    predictionBuffer = [];
+    currentCandidate = null;
+    holdStartTime = null;
+    committedCandidate = null;
+    updateProgressRing(0);
+    renderLetterBuffer();
+    sentenceText.textContent = "Start signing to build a sentence...";
+  };
+
+  window.speakSentence = function() {
+    const fullText = (sentence + (currentWord.length > 0 ? " " + currentWord.join("") : "")).trim();
+    if (!fullText || fullText === "Start signing to build a sentence...") return;
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(fullText);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      utterance.lang = "en-US";
+      window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  window.copySentence = function() {
+    const text = (sentence + (currentWord.length > 0 ? " " + currentWord.join("") : "")).trim();
+    if (!text) return;
+    navigator.clipboard?.writeText(text);
+    const btn = document.getElementById("copyBtn");
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<span class="material-symbols-outlined text-base text-secondary">check</span><span class="text-secondary">Copied!</span>';
+    setTimeout(() => { btn.innerHTML = orig; }, 1500);
+  };
+
+  window.toggleFullscreen = function() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen();
+    } else {
+      document.exitFullscreen();
+    }
+  };
+
+  // ── Status Helpers ──
+  function setStatus(type, text) {
+    statusText.textContent = text;
+    if (type === "live") {
+      statusDot.className = "w-2 h-2 rounded-full bg-secondary animate-pulse";
+      statusPill.classList.add("text-secondary", "border-secondary/20");
+      statusPill.classList.remove("text-outline");
+    } else if (type === "error") {
+      statusDot.className = "w-2 h-2 rounded-full bg-error";
+      statusPill.classList.add("text-error");
+      statusPill.classList.remove("text-outline");
+    }
+  }
+
+  // ── Init ──
+  startCamera();
+
+})();
+</script>
+
+</body>
+</html>
