@@ -93,17 +93,19 @@
         <span class="material-symbols-outlined text-primary text-sm">psychology</span>
         <label for="modelSelect" class="text-xs font-mono text-outline select-none hidden md:inline">Model:</label>
         <select id="modelSelect" class="bg-surface-container-high text-on-surface text-xs font-mono rounded px-2 py-1 border-0 focus:ring-1 focus:ring-primary cursor-pointer outline-none">
-          <option value="cnn" selected>CNN (Deep Learning - Default)</option>
-          <option value="knn">KNN (PCA + K-Nearest Neighbors)</option>
-          <option value="kmeans">K-Means (Clustering)</option>
+          <option value="svm" selected>SVM (RBF)</option>
+          <option value="mlp">MLP (neural net)</option>
+          <option value="cnn">1D-CNN</option>
+          <option value="knn">KNN</option>
+          <option value="kmeans">K-Means</option>
         </select>
       </div>
 
       <!-- Hold-to-Confirm Duration Slider -->
-      <div class="flex items-center gap-1.5 bg-surface-container px-2.5 py-1 rounded-lg border border-surface-container-high/40" title="Hold duration to confirm letter (0.8s - 1.5s)">
+      <div class="flex items-center gap-1.5 bg-surface-container px-2.5 py-1 rounded-lg border border-surface-container-high/40" title="Hold duration to confirm letter (0.2s - 5s)">
         <span class="material-symbols-outlined text-secondary text-sm">timer</span>
-        <span id="holdValueDisplay" class="font-mono text-xs text-outline select-none min-w-[30px]">1.0s</span>
-        <input type="range" id="holdSlider" min="0.8" max="1.5" step="0.1" value="1.0" class="w-16 h-1.5 bg-surface-container-highest rounded-lg appearance-none cursor-pointer accent-secondary">
+        <span id="holdValueDisplay" class="font-mono text-xs text-outline select-none min-w-[30px]">3.0s</span>
+        <input type="range" id="holdSlider" min="0.2" max="5" step="0.1" value="3" class="w-16 h-1.5 bg-surface-container-highest rounded-lg appearance-none cursor-pointer accent-secondary">
       </div>
 
       <!-- FPS Display -->
@@ -197,7 +199,7 @@
       <div class="flex items-center gap-3 text-outline font-mono text-xs">
         <span class="flex items-center gap-1.5">
           <span class="text-outline">Engine:</span>
-          <strong id="activeModelTag" class="px-2 py-0.5 rounded bg-surface-container-high text-primary border border-surface-container-high/60 uppercase">CNN</strong>
+          <strong id="activeModelTag" class="px-2 py-0.5 rounded bg-surface-container-high text-primary border border-surface-container-high/60 uppercase">SVM</strong>
         </span>
         <span class="flex items-center gap-1">
           <span class="material-symbols-outlined text-secondary text-sm">bolt</span>
@@ -296,7 +298,7 @@
   const CONSISTENCY_REQ   = 0.75; // ≥ 75% consistency required to make a letter active
   let predictionBuffer    = [];   // Stores last N predictions
 
-  let holdDurationMs      = 1000; // Hold duration: 800ms - 1500ms (default 1000ms)
+  let holdDurationMs      = 3000; // Hold duration: 3000ms - 5000ms (default 3000ms)
   let currentCandidate    = null; // Candidate letter currently accumulating hold time
   let holdStartTime       = null; // Timestamp when hold started
   let committedCandidate  = null; // Prevents spamming the same letter until user changes gesture/resets
@@ -313,6 +315,36 @@
     holdDurationMs = Math.round(val * 1000);
     holdValueDisplay.textContent = val.toFixed(1) + "s";
   });
+
+  // ── Model dropdown: filled from the models the server actually loaded ──
+  function setModelTag() {
+    activeModelTag.textContent = modelSelect.value.toUpperCase();
+  }
+  modelSelect.addEventListener("change", function() {
+    try { localStorage.setItem("asl_model", modelSelect.value); } catch (e) {}
+    predictionBuffer = [];          // don't mix predictions from two models
+    currentCandidate = null;
+    holdStartTime = null;
+    setModelTag();
+  });
+  fetch("/api/models")
+    .then(function(r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(function(d) {
+      let saved = null;
+      try { saved = localStorage.getItem("asl_model"); } catch (e) {}
+      modelSelect.innerHTML = "";
+      d.models.forEach(function(m) {
+        const o = document.createElement("option");
+        o.value = m.id;
+        o.textContent = m.label;
+        modelSelect.appendChild(o);
+      });
+      modelSelect.value = d.models.some(function(m) { return m.id === saved; }) ? saved : d["default"];
+      setModelTag();
+    })
+    .catch(function(e) {
+      console.error("Could not load /api/models (is the new app.py running?):", e);
+    });
 
   // ── MediaPipe Hand Connections for Skeleton ──
   const HAND_CONNECTIONS = [
@@ -465,7 +497,7 @@
       tmpCtx.drawImage(video, 0, 0, 320, 240);
       const dataUrl = tmpCanvas.toDataURL("image/jpeg", 0.75);
 
-      const chosenModel = modelSelect ? modelSelect.value : "cnn";
+      const chosenModel = modelSelect ? modelSelect.value : "svm";
 
       const resp = await fetch("/api/predict", {
         method: "POST",

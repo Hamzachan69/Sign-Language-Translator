@@ -1,119 +1,90 @@
 """
-══════════════════════════════════════════════════════════════════════════════
-  ASL Hand-Gesture Classifier  –  K-Nearest Neighbours (KNN)
-══════════════════════════════════════════════════════════════════════════════
-
+==============================================================================
+  ASL Classifier - MediaPipe LANDMARKS + K-Nearest Neighbours (KNN)
+==============================================================================
 HOW TO RUN
 ----------
-  python models/knn_classifier.py
+  pip install mediapipe scikit-learn opencv-python joblib numpy matplotlib seaborn
+  python models/knn_classifier.py [--limit 200] [--rebuild]
 
-WHAT IT DOES
-------------
-  1. Loads the pre-split asl_processed  train / test images.
-  2. Flattens each image to a 1-D feature vector (64 × 64 × 3 = 12 288 dims).
-  3. Applies PCA for dimensionality reduction (speeds up k-NN significantly).
-  4. Performs a small grid-search over k to pick the best neighbour count.
-  5. Fits the best StandardScaler -> PCA(150) -> KNeighborsClassifier pipeline.
-  6. Saves the fitted pipeline to models/results/knn_model.joblib.
-  7. Evaluates on the held-out test set and prints:
-       • Accuracy  • Precision  • Recall  • F1-Score  • Confusion Matrix
-  8. Saves the confusion-matrix heat-map as a PNG.
+PIPELINE
+--------
+  image -> MediaPipe landmarks -> normalise -> 93 features -> mirror augmentation
+        -> StandardScaler -> KNN (k and vote weighting tuned on a validation split)
+  No PCA needed: 93 dimensions is already small (the old pixel version used 12 288).
 
-OUTPUT FILES
-------------
-  models/results/knn_model.joblib
+OUTPUT
+------
+  models/results/knn_model.joblib   {"pipeline", "classes", "name"}
   models/results/knn_confusion_matrix.png
-"""
 
-import os, sys, time
-import joblib
-import numpy as np
+UNINSTALL: delete models/results/knn_*
+"""
+import sys, time, argparse
 from pathlib import Path
 
-# ── make sibling imports work when script is run directly ──────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import Pipeline
+try:
+    import joblib
+    import numpy as np
+    from sklearn.model_selection import train_test_split
+    from sklearn.neighbors import KNeighborsClassifier
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler
+except ImportError as e:
+    sys.exit(f"[FAIL] Missing package '{e.name}'.\n"
+             f"       Fix: pip install mediapipe scikit-learn opencv-python joblib numpy matplotlib seaborn")
 
-from utils.data_loader import TRAIN_DIR, TEST_DIR, load_split
+from utils.landmark_data import load_landmark_data, augment, to_features, RESULTS_DIR
 from utils.metrics import print_metrics, plot_confusion_matrix
 
-# ─── config ───────────────────────────────────────────────────────────────────
-K_VALUES       = [3, 5, 7, 9]      # neighbour counts to try
-PCA_COMPONENTS = 150               # keep 150 principal components
-RESULTS_DIR    = Path(__file__).resolve().parent / "results"
-RESULTS_DIR.mkdir(exist_ok=True)
-MODEL_PATH     = RESULTS_DIR / "knn_model.joblib"
+MODEL_PATH = RESULTS_DIR / "knn_model.joblib"
+K_VALUES = [3, 5, 7, 9, 15]
+WEIGHTS = ["uniform", "distance"]
+
+
+def make_knn(k, weights):
+    return Pipeline([("scaler", StandardScaler()),
+                     ("clf", KNeighborsClassifier(n_neighbors=k, weights=weights, n_jobs=-1))])
 
 
 def main():
-    print("\n" + "=" * 60)
-    print("  K-Nearest Neighbours  -  ASL Classifier")
-    print("=" * 60)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--rebuild", action="store_true")
+    args = ap.parse_args()
 
-    # ── 1. load data ──────────────────────────────────────────────────────────
-    print("\n[1/4]  Loading dataset …")
-    X_train, y_train, classes = load_split(TRAIN_DIR, flatten=True)
-    X_test,  y_test,  _       = load_split(TEST_DIR,  flatten=True)
-    print(f"       Train : {X_train.shape}   Test : {X_test.shape}")
-    print(f"       Classes ({len(classes)}): {', '.join(classes)}")
+    print("\n" + "=" * 60 + "\n  Landmarks + KNN  -  ASL Classifier\n" + "=" * 60)
+    X_tr, y_tr, X_te, y_te, classes = load_landmark_data(args.limit, args.rebuild)
 
-    # ── 2. build pipeline (scale → PCA → KNN) ────────────────────────────────
-    print(f"\n[2/4]  Building pipeline  "
-          f"(StandardScaler → PCA({PCA_COMPONENTS}) → KNN) …")
-
-    best_k, best_acc, best_pipe = None, -1, None
-
-    print(f"\n[3/4]  Grid-searching k ∈ {K_VALUES} …")
-    # Simple hold-out validation on 20 % of training data for speed
-    rng = np.random.default_rng(42)
-    idx = rng.permutation(len(X_train))
-    val_size = int(0.2 * len(X_train))
-    val_idx,  tr_idx = idx[:val_size], idx[val_size:]
-    X_tr, y_tr  = X_train[tr_idx],  y_train[tr_idx]
-    X_val, y_val = X_train[val_idx], y_train[val_idx]
-
+    print("\n[2] Tuning k / weights on a 20% validation split ...")
+    Xa, Xv, ya, yv = train_test_split(X_tr, y_tr, test_size=0.2, stratify=y_tr, random_state=42)
+    Xa_f, ya_f = augment(Xa, ya)
+    Xa_f = to_features(Xa_f)
+    Xv_f = to_features(Xv)
+    best, best_acc = None, -1
     for k in K_VALUES:
-        pipe = Pipeline([
-            ("scaler", StandardScaler()),
-            ("pca",    PCA(n_components=PCA_COMPONENTS, random_state=42)),
-            ("knn",    KNeighborsClassifier(n_neighbors=k,
-                                            metric="euclidean",
-                                            n_jobs=-1)),
-        ])
-        t0 = time.time()
-        pipe.fit(X_tr, y_tr)
-        val_acc = pipe.score(X_val, y_val)
-        print(f"       k={k:>2d}  val-accuracy = {val_acc*100:.2f} %"
-              f"  ({time.time()-t0:.1f}s)")
-        if val_acc > best_acc:
-            best_acc, best_k, best_pipe = val_acc, k, pipe
+        for w in WEIGHTS:
+            t0 = time.time()
+            acc = make_knn(k, w).fit(Xa_f, ya_f).score(Xv_f, yv)
+            print(f"       k={k:<2} {w:<9} val accuracy = {acc*100:.2f}%  ({time.time()-t0:.1f}s)")
+            if acc > best_acc:
+                best, best_acc = (k, w), acc
+    print(f"\n  Best: k={best[0]}, weights={best[1]}")
 
-    print(f"\n  Best k = {best_k}  (val-accuracy = {best_acc*100:.2f} %)")
+    print("\n[3] Final fit on the full training set ...")
+    X_full, y_full = augment(X_tr, y_tr)
+    final = make_knn(*best).fit(to_features(X_full), y_full)
+    joblib.dump({"pipeline": final, "classes": classes, "name": "KNN"}, MODEL_PATH)
+    print(f"       saved {MODEL_PATH}")
 
-    # ── 3. final fit on full training set ─────────────────────────────────────
-    print(f"\n       Re-fitting on full training set with k={best_k} …")
-    best_pipe.set_params(knn__n_neighbors=best_k)
-    best_pipe.fit(X_train, y_train)
-
-    # ── 4. persist pipeline to disk ───────────────────────────────────────────
-    print(f"\n       Saving fitted KNN pipeline to {MODEL_PATH} …")
-    joblib.dump(best_pipe, MODEL_PATH)
-    print(f"       Model saved successfully.")
-
-    # ── 5. evaluate ───────────────────────────────────────────────────────────
-    print("\n[4/4]  Evaluating on test set …\n")
-    y_pred  = best_pipe.predict(X_test)
-    results = print_metrics(y_test, y_pred, classes, f"KNN (k={best_k})")
-
-    cm_path = str(RESULTS_DIR / "knn_confusion_matrix.png")
-    plot_confusion_matrix(results["confusion_matrix"], classes,
-                          f"KNN (k={best_k})", save_path=cm_path)
-
-    print(f"\n  Done.  Results saved to: {RESULTS_DIR}\n")
+    print("\n[4] Test-set evaluation ...\n")
+    y_pred = final.predict(to_features(X_te))
+    res = print_metrics(y_te, y_pred, classes, f"Landmarks + KNN (k={best[0]})")
+    plot_confusion_matrix(res["confusion_matrix"], classes, f"Landmarks + KNN (k={best[0]})",
+                          save_path=str(RESULTS_DIR / "knn_confusion_matrix.png"))
+    print("\n  Done.\n")
 
 
 if __name__ == "__main__":
