@@ -47,9 +47,13 @@ for name in ("knn", "kmeans", "svm", "mlp", "cnn"):
         except ImportError:
             print(f"  {'CNN':<22}| tensorflow missing  (pip install tensorflow==2.15.0)")
             continue
-        model = tf.keras.models.load_model(str(p))
-        t0 = time.time()
-        pred = np.argmax(model.predict(d["X"].reshape(-1, 21, 3), batch_size=512, verbose=0), axis=1)
+        try:
+            model = tf.keras.models.load_model(str(p))
+            t0 = time.time()
+            pred = np.argmax(model.predict(d["X"].reshape(-1, 21, 3), batch_size=512, verbose=0), axis=1)
+        except Exception as e:
+            print(f"  {'CNN':<22}| load error (retrain with python models/cnn_classifier.py): {e}")
+            continue
     else:
         p = R / f"{name}_model.joblib"
         if not p.exists():

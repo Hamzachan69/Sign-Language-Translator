@@ -1,34 +1,37 @@
 # 🖐️ American Sign Language (ASL) Real-Time Recognition & Translation System
 
-An end-to-end, multi-model Computer Vision and Deep Learning system for real-time American Sign Language (ASL) fingerspelling recognition and live text translation.
+An end-to-end, multi-model Computer Vision and Machine Learning system for real-time American Sign Language (ASL) fingerspelling recognition, word assembly, and live speech translation.
 
-The project features a **full-stack web application** (Flask + Tailwind CSS + HTML5 Canvas), **real-time hand skeletal tracking** via Google MediaPipe, and a **multi-model inference engine** supporting deep learning (CNN) alongside classic machine learning baselines (KNN, K-Means) across **36 ASL classes** (digits `0–9` and alphabet `A–Z`).
+The system is built on **Google MediaPipe Tasks API** for robust 3D hand skeletal landmark tracking, a **93-dimensional geometric feature engineering pipeline**, and a **multi-model inference engine** supporting five distinct algorithms (**SVM**, **MLP**, **KNN**, **K-Means**, and **1D-CNN**) across **36 ASL classes** (digits `0–9` and alphabet `A–Z`).
 
 ---
 
 ## 📑 Table of Contents
 
 - [Overview & Architecture](#-overview--architecture)
+- [The Landmark Revolution (Why Landmarks over Pixels?)](#-the-landmark-revolution-why-landmarks-over-pixels)
 - [How The Program Works (End-to-End Pipeline)](#-how-the-program-works-end-to-end-pipeline)
-  - [1. Client-Side Video Capture & Canvas Rendering](#1-client-side-video-capture--canvas-rendering)
-  - [2. Google MediaPipe Hand Landmark Detection](#2-google-mediapipe-hand-landmark-detection)
-  - [3. Dynamic Region of Interest (ROI) Extraction](#3-dynamic-region-of-interest-roi-extraction)
-  - [4. Multi-Model Inference & Dispatch](#4-multi-model-inference--dispatch)
-  - [5. Interactive Frontend Features](#5-interactive-frontend-features)
+  - [1. Client-Side Video Capture & Offscreen Compression](#1-client-side-video-capture--offscreen-compression)
+  - [2. MediaPipe Hand Landmark Detection (Tasks API)](#2-mediapipe-hand-landmark-detection-tasks-api)
+  - [3. Normalization & 93-Dimensional Feature Engineering](#3-normalization--93-dimensional-feature-engineering)
+  - [4. Multi-Model Inference Dispatch](#4-multi-model-inference-dispatch)
+  - [5. Interactive Frontend, Hold-to-Confirm & TTS](#5-interactive-frontend-hold-to-confirm--tts)
 - [How Each Algorithm Works (Theory & Training)](#-how-each-algorithm-works-theory--training)
-  - [1. Convolutional Neural Network (CNN) - Deep Learning](#1-convolutional-neural-network-cnn---deep-learning)
-  - [2. K-Nearest Neighbors (KNN) - Instance-Based Learning](#2-k-nearest-neighbors-knn---instance-based-learning)
-  - [3. K-Means Clustering - Unsupervised Learning](#3-k-means-clustering---unsupervised-learning)
-- [Comparative Performance Benchmark](#-comparative-performance-benchmark)
-- [Tech Stack & Tools Used So Far](#-tech-stack--tools-used-so-far)
+  - [1. Support Vector Machine (SVM) — Default Production Engine](#1-support-vector-machine-svm--default-production-engine)
+  - [2. Multi-Layer Perceptron (MLP) — Deep Feed-Forward Network](#2-multi-layer-perceptron-mlp--deep-feed-forward-network)
+  - [3. K-Nearest Neighbors (KNN) — Instance-Based Metric Learning](#3-k-nearest-neighbors-knn--instance-based-metric-learning)
+  - [4. K-Means Clustering — Unsupervised Learning + Majority Voting](#4-k-means-clustering--unsupervised-learning--majority-voting)
+  - [5. 1D Convolutional Neural Network (1D-CNN) — Topological Sequence Model](#5-1d-convolutional-neural-network-1d-cnn--topological-sequence-model)
+- [Benchmark & Evaluation Metrics](#-benchmark--evaluation-metrics)
 - [Project Directory Structure](#-project-directory-structure)
+- [Tech Stack & Dependencies](#-tech-stack--dependencies)
 - [Setup & Getting Started](#-setup--getting-started)
-  - [Prerequisites](#prerequisites)
   - [Installation](#installation)
   - [Environment Verification](#environment-verification)
 - [Training the Models](#-training-the-models)
-- [Running the Application](#-running-the-application)
-- [Standalone Diagnostic & Utility Tools](#-standalone-diagnostic--utility-tools)
+- [Running the Live Application](#-running-the-live-application)
+- [Standalone Diagnostic & Benchmark Utilities](#-standalone-diagnostic--benchmark-utilities)
+- [Files Cleanup & Maintenance Guide](#-files-cleanup--maintenance-guide)
 
 ---
 
@@ -37,196 +40,169 @@ The project features a **full-stack web application** (Flask + Tailwind CSS + HT
 ```
                   ┌────────────────────────────────────────────────────────┐
                   │                 BROWSER CLIENT (UI)                    │
-                  │  • Webcam stream via getUserMedia                      │
-                  │  • Overlay Canvas: 21 skeletal joints & connections    │
-                  │  • Stream loop: 12-15 FPS base64 JPEG payload          │
-                  │  • TTS Speech Synthesis & Sentence Construction        │
+                  │  • Webcam stream via getUserMedia (1280x720)           │
+                  │  • Offscreen canvas compression -> JPEG base64 payload │
+                  │  • Overlay Canvas: 21 skeletal joints & connecting bones│
+                  │  • Hold-to-confirm duration slider (0.2s - 5.0s)       │
+                  │  • Dynamic model switcher (queried from /api/models)   │
+                  │  • Sentence builder & Web Speech API TTS voice readout │
                   └───────────────────────────┬────────────────────────────┘
                                               │ HTTP POST /api/predict
-                                              │ (base64 frame + selected model)
+                                              │ (frame payload + model id)
                                               ▼
                   ┌────────────────────────────────────────────────────────┐
                   │                 FLASK SERVER (PYTHON)                  │
                   │  1. Decode base64 buffer -> OpenCV BGR Frame           │
-                  │  2. MediaPipe Hands: Extract 21 3D landmarks           │
-                  │  3. ROI Extraction: Square clamp, pad, resize (64x64)  │
-                  │  4. Color conversion: BGR -> RGB, normalize [0, 1]     │
+                  │  2. MediaPipe HandLandmarker (Tasks API asset)         │
+                  │  3. Selfie-mode handedness correction (Left ↔ Right)   │
+                  │  4. Normalize landmarks: wrist = origin (0,0,0), scale │
+                  │  5. Engineered features (93-D) or raw joint sequence   │
                   └───────────────────────────┬────────────────────────────┘
                                               │
-                      ┌───────────────────────┼───────────────────────┐
-                      ▼                       ▼                       ▼
-            ┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
-            │   CNN MODEL      │    │    KNN MODEL     │    │   K-MEANS MODEL  │
-            │  (Deep Learning) │    │(StandardScaler + │    │(StandardScaler + │
-            │  TensorFlow/Keras│    │   PCA(150) +     │    │   PCA(150) +     │
-            │  Input: (64,64,3)│    │   KNN Classifier)│    │ MiniBatchKMeans) │
-            │  Accuracy: ~99%  │    │  Accuracy: 81.4% │    │  Accuracy: 24.6% │
-            └─────────┬────────┘    └─────────┬────────┘    └─────────┬────────┘
-                      └───────────────────────┼───────────────────────┘
+        ┌───────────────────┬─────────────────┼─────────────────┬───────────────────┐
+        ▼                   ▼                 ▼                 ▼                   ▼
+┌──────────────┐    ┌──────────────┐   ┌──────────────┐   ┌──────────────┐    ┌──────────────┐
+│  SVM (RBF)   │    │  MLP (Dense) │   │  KNN (k=5)   │   │K-Means(k=108)│    │   1D-CNN     │
+│ StandardScaler│   │ StandardScaler│  │StandardScaler│   │StandardScaler│    │ Conv1D x 3   │
+│   + SVC(RBF) │    │+ MLP(256,128)│   │  + Dist-KNN  │   │+ KMeans-Vote │    │+ BatchNorm   │
+│Acc: 100.00%  │    │ Acc: 99.97%  │   │ Acc: 99.97%  │   │ Acc: 79.65%  │    │ Acc: ~99.0%  │
+└───────┬──────┘    └───────┬──────┘   └───────┬──────┘   └───────┬──────┘    └───────┬──────┘
+        └───────────────────┴─────────────────┼─────────────────┴───────────────────┘
                                               │ Response JSON
                                               │ {letter, confidence, landmarks,
                                               │  handedness, latency_ms}
                                               ▼
                   ┌────────────────────────────────────────────────────────┐
-                  │ Updates predictions, confidence bar, audio readout,   │
-                  │ hand tracking overlay, and live latency metrics        │
+                  │ Updates active letter display, confidence meter,       │
+                  │ progress ring, latency readout, and canvas skeleton    │
                   └────────────────────────────────────────────────────────┘
 ```
 
 ---
 
+## 💡 The Landmark Revolution (Why Landmarks over Pixels?)
+
+Traditional sign language models classify raw cropped camera pixels. This approach introduces severe real-world failure modes:
+1. **Lighting & Skin-Tone Sensitivity:** Ambient room shadows, dim lamps, and skin pigment variations shift raw RGB distributions drastically.
+2. **Background Clutter:** Objects, furniture, and clothing behind the hand distort convolutional activations.
+3. **High Dimensionality:** A $64 \times 64 \times 3$ crop requires processing 12,288 dimensions per frame.
+4. **Sign Ambiguity:** Letters with similar silhouettes (e.g., `M`, `N`, `S`, `T` or `U`, `V`, `R`) produce overlapping pixel profiles.
+
+### The Modern Solution:
+The system shifts the entire architecture to **Google MediaPipe Hand Landmarks** and **kinematic feature engineering**:
+- The hand is converted into **21 discrete 3D spatial joints** $(x, y, z)$.
+- Pixels are discarded; only anatomical relationships (joint hinge angles, finger curl amounts, fingertip-to-fingertip contact distances) are evaluated.
+- **Left/Right Hand Agnostic:** Applying horizontal reflection ($x \to -x$) during training makes all classifiers seamlessly recognize gestures from both left and right hands.
+- **Blazing Performance:** Feature vectors shrink from 12,288 down to **93 numbers**, reducing CPU inference latency to **under 1 ms**.
+
+---
+
 ## 🔄 How The Program Works (End-to-End Pipeline)
 
-### 1. Client-Side Video Capture & Canvas Rendering
-- The user accesses the web app at `http://localhost:5000/translate`.
-- The browser requests webcam access using `navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } })`.
-- A continuous rendering loop grabs video frames, writes them to a hidden offscreen `<canvas>`, compresses the frame into a JPEG data URL, and posts it asynchronously to `/api/predict`.
+### 1. Client-Side Video Capture & Offscreen Compression
+- The user launches the translator at `http://localhost:5000/translate`.
+- Camera feed is acquired via `navigator.mediaDevices.getUserMedia` at 1280×720 resolution.
+- An offscreen canvas extracts frames at 320×240 JPEG compression (`quality=0.75`) and transmits them via `POST /api/predict`.
 
-### 2. Google MediaPipe Hand Landmark Detection
-- The backend decodes the incoming JPEG into a NumPy array with OpenCV (`cv2.imdecode`).
-- Frame is converted from BGR to RGB and passed to **MediaPipe Hands** (`mp.solutions.hands.Hands`).
-- MediaPipe locates up to 21 distinct 3D landmarks on the hand (wrist, palm, thumb MCP/IP/tip, index MCP/PIP/DIP/tip, etc.).
-- MediaPipe also evaluates **handedness** (`Left` or `Right`). Because webcam streams are mirrored for user comfort (selfie mode), the server adjusts the handedness tag to reflect the true hand position.
+### 2. MediaPipe Hand Landmark Detection (Tasks API)
+- The Flask backend receives the payload and decodes it via `cv2.imdecode`.
+- MediaPipe's **Tasks API** (`vision.HandLandmarker` utilizing `models/hand_landmarker.task`) locates the 21 3D hand keypoints (wrist, MCP, PIP, DIP, and fingertip coordinates).
+- **Selfie Mode Inversion:** Raw webcam video is mirrored on-screen for user comfort. The server inverts the MediaPipe handedness classification (`Left` becomes `Right` and vice versa) so the user's physical hand is accurately recognized.
 
-### 3. Dynamic Region of Interest (ROI) Extraction
-To ensure high classification accuracy regardless of where the hand is situated in the camera frame:
-- The system computes the minimum and maximum coordinates of all 21 detected landmarks `(x_min, x_max, y_min, y_max)`.
-- It calculates the bounding box center `(cx, cy)` and computes a square bounding box by taking `side = max(width, height) + 2 * padding` (where padding = 25px).
-- **Aspect Ratio Preservation & Border Padding**: If the hand is close to the frame boundary, clipping can cause the crop to become rectangular. The pipeline uses `cv2.copyMakeBorder` with black pixels (`cv2.BORDER_CONSTANT`) so the extracted patch remains an undistorted 1:1 square.
-- The cropped hand image is converted to **RGB**, resized to **64 × 64 pixels** using `cv2.INTER_AREA`, and normalized to floating point values in `[0.0, 1.0]`.
+### 3. Normalization & 93-Dimensional Feature Engineering
+Hand landmarks are transformed via [`models/utils/landmark_features.py`](file:///c:/GitHub/Sign%20Language%20Translator/models/utils/landmark_features.py):
+1. **Wrist-Origin Translation:** All 21 joint points are translated so the wrist joint (index 0) is situated at $(0, 0, 0)$, providing **100% position invariance**.
+2. **Scale Normalization:** Points are divided by the maximum Euclidean distance from the wrist to any knuckle/tip, ensuring **100% camera-distance invariance**.
+3. **Geometric Features (93 total):**
+   - **63 Raw Coordinates:** 21 normalized $(x, y, z)$ coordinates.
+   - **10 Fingertip Distances:** Pairwise Euclidean distances between all 5 fingertips ($\binom{5}{2} = 10$).
+   - **15 Joint Bend Angles:** Cosine angles across the 3 anatomical hinge joints per finger ($5 \times 3 = 15$).
+   - **5 Finger Curl Distances:** Direct distance from each fingertip to its own MCP knuckle, measuring individual finger curling.
 
-### 4. Multi-Model Inference & Dispatch
-The normalized 64×64 patch is handed off to the user-selected model in the model registry:
-- **CNN**: Accepts `(1, 64, 64, 3)` tensor $\rightarrow$ outputs softmax probabilities across all 36 classes $\rightarrow$ takes `argmax` and max probability as confidence.
-- **KNN**: Flattens patch to `(1, 12288)` vector $\rightarrow$ passes through `StandardScaler` $\rightarrow$ projects onto 150 components with `PCA` $\rightarrow$ computes class probabilities with `predict_proba`.
-- **K-Means**: Flattens patch to `(1, 12288)` vector $\rightarrow$ standardizes and applies PCA(150) $\rightarrow$ predicts nearest cluster ID $\rightarrow$ maps cluster ID to true class via majority-vote mapping table (`pipe.cluster_map_`) $\rightarrow$ generates soft confidence from centroid distance.
+### 4. Multi-Model Inference Dispatch
+The 93-dimensional feature vector (or raw $21 \times 3$ sequence for 1D-CNN) is routed to the selected model:
+- **SVM:** Evaluates probability via RBF kernel boundary margins.
+- **MLP:** Feeds through a 2-hidden-layer neural network with Softmax output.
+- **KNN:** Computes distance-weighted votes across the $K=5$ closest neighbors.
+- **K-Means:** Finds the closest of 108 centroids, maps to a class via majority vote, and calculates soft distance confidence.
+- **1D-CNN:** Slides 1D convolutions across joint chains to capture spatial joint dependencies.
 
-### 5. Interactive Frontend Features
-- **Live Skeletal Visualization**: The returned 21 landmarks are drawn onto the live camera preview with color-coded fingers (orange for thumb, green for index, rose for middle, purple for ring, cyan for pinky) and connecting bones.
-- **Hold-to-Confirm / Sentence Builder**: When a hand gesture remains stable above a confidence threshold for a short duration, the character is automatically appended to the sentence buffer.
-- **Text-to-Speech (TTS)**: Built-in synthesis uses the Web Speech API (`speechSynthesis`) to speak out recognized words or completed sentences with one click.
-- **Model Switcher**: Allows live toggling between CNN, KNN, and K-Means right from the UI navigation bar without restarting the server.
-- **ASL Alphabet Modal**: An interactive reference card showing the sign gestures for letters `A–Z` and numbers `0–9` to assist learners.
+### 5. Interactive Frontend, Hold-to-Confirm & TTS
+- **Canvas Skeleton:** Overlays the 21 landmark joints with color-coded fingers and connecting bones on top of the live video.
+- **Hold-to-Confirm Duration Slider (0.2s – 5.0s, default 3.0s):** Requires the user to hold a sign steadily before appending the letter to the sentence, filtering out transitional hand movements.
+- **Text-to-Speech (TTS):** Uses the browser's native Web Speech API (`window.speechSynthesis`) to speak out recognized words or completed sentences with one click.
+- **Dynamic Model Selector:** The dropdown dynamically reflects which models are currently trained and saved on disk via `/api/models`.
 
 ---
 
 ## 🧠 How Each Algorithm Works (Theory & Training)
 
-### 1. Convolutional Neural Network (CNN) - Deep Learning
-*File: [models/cnn_classifier.py](file:///c:/GitHub/Sign%20Language%20Translator/models/cnn_classifier.py)*
+### 1. Support Vector Machine (SVM) — Default Production Engine
+*File: [models/svm_classifier.py](file:///c:/GitHub/Sign%20Language%20Translator/models/svm_classifier.py)*
 
-The CNN is the primary production model, engineered to achieve state-of-the-art accuracy on complex hand configurations where small finger shifts differentiate letters (e.g., distinguishing 'M', 'N', 'S', and 'T').
-
-```
-Input (64x64x3 RGB)
-       │
-[Data Augmentation Head (Training Only)]
-  ├── RandomFlip(horizontal)
-  ├── RandomRotation(±12%)
-  ├── RandomZoom(±12%)
-  ├── RandomContrast(±20%)
-  └── RandomTranslation(±8%)
-       │
-[Block 1: Low-Level Feature Extraction]
-  ├── Conv2D(32, 3x3) + BatchNorm + ReLU
-  ├── Conv2D(64, 3x3) + BatchNorm + ReLU
-  └── MaxPool2D(2x2) + Dropout(0.35)
-       │
-[Block 2: Mid-Level Pattern Assembly]
-  ├── Conv2D(128, 3x3) + BatchNorm + ReLU
-  ├── Conv2D(128, 3x3) + BatchNorm + ReLU
-  └── MaxPool2D(2x2) + Dropout(0.35)
-       │
-[Block 3: High-Level Semantics]
-  ├── Conv2D(256, 3x3) + BatchNorm + ReLU
-  └── GlobalAveragePooling2D()
-       │
-[Dense Classifier Head]
-  ├── Dense(256) + BatchNorm + ReLU + Dropout(0.35)
-  └── Dense(36, Softmax) [float32 numerical stability]
-```
-
-#### Training Mechanism:
-1. **GPU Acceleration & Mixed Precision**: Configured for NVIDIA RTX Tensor Cores using `tf.keras.mixed_precision.set_global_policy("mixed_float16")`. Matrix multiplications execute in FP16 for ~2x throughput, while weights and final softmax outputs are maintained in FP32 to prevent underflow.
-2. **Robust Augmentation Strategy**:
-   - Native `tf.image` augmentations inside `tf.data.Dataset` (brightness, saturation, hue, contrast).
-   - Keras model-level layers (rotation, translation, zoom, horizontal flip) that automatically deactivate during inference (`training=False`).
-3. **Loss Function with Label Smoothing**:
-   $$\mathcal{L}_{\text{LS}} = (1 - \alpha) \mathcal{L}_{\text{CE}} + \alpha \frac{1}{K} \sum_{k=1}^K - \log(p_k)$$
-   Uses `SparseCategoricalCrossentropy(label_smoothing=0.1)` with $\alpha = 0.1$. This prevents the network from becoming overly confident in ambiguous gesture boundaries and improves out-of-distribution real-world camera generalization.
-4. **Optimization & Callbacks**:
-   - Optimizer: `Adam(learning_rate=5e-4)`.
-   - `ModelCheckpoint`: Automatically saves only the best model weights based on `val_accuracy` to `models/results/cnn_best_model.keras`.
-   - `ReduceLROnPlateau`: Halves learning rate (`factor=0.5`) when validation loss stagnates for 3 epochs down to `min_lr=1e-6`.
-   - `EarlyStopping`: Halts training if no validation improvement is seen for 15 consecutive epochs, restoring the best historical weights.
+The SVM is the primary production engine, achieving flawless separation on the 93 geometric features.
+- **Kernel Function:** Radial Basis Function (RBF):
+  $$K(\mathbf{x}, \mathbf{x}') = \exp\left(-\gamma \|\mathbf{x} - \mathbf{x}'\|^2\right)$$
+- **Optimization:** Evaluates soft margin penalties $C \in \{3, 10, 30\}$ on a validation split, selecting $C=10$ with `gamma='scale'`.
+- **Probabilities:** Fitted with `probability=True` (Platt scaling) to output calibrated prediction confidences.
+- **Performance:** **100.00% Test Accuracy**, 0.54 ms latency.
 
 ---
 
-### 2. K-Nearest Neighbors (KNN) - Instance-Based Learning
+### 2. Multi-Layer Perceptron (MLP) — Deep Feed-Forward Network
+*File: [models/mlp_classifier.py](file:///c:/GitHub/Sign%20Language%20Translator/models/mlp_classifier.py)*
+
+A lightweight, fully connected deep neural network operating on normalized features:
+- **Architecture:**
+  $$\mathbf{x} \in \mathbb{R}^{93} \xrightarrow{\text{Dense}(256) + \text{ReLU}} \mathbf{h}_1 \xrightarrow{\text{Dense}(128) + \text{ReLU}} \mathbf{h}_2 \xrightarrow{\text{Dense}(36) + \text{Softmax}} \hat{\mathbf{y}}$$
+- **Regularization & Stopping:** Trained with Adam, an L2 penalty ($\alpha = 10^{-3}$), and automated early stopping (`patience=15`) monitoring validation loss.
+- **Performance:** **99.97% Test Accuracy**, ultra-fast **0.003 ms latency** on CPU.
+
+---
+
+### 3. K-Nearest Neighbors (KNN) — Instance-Based Metric Learning
 *File: [models/knn_classifier.py](file:///c:/GitHub/Sign%20Language%20Translator/models/knn_classifier.py)*
 
-KNN serves as a classical supervised benchmark. Because raw 64×64 RGB images produce $64 \times 64 \times 3 = 12{,}288$ features per sample, calculating pairwise Euclidean distances directly in 12,288 dimensions suffers severely from the **curse of dimensionality** and exhibits slow query latency.
-
-#### Training & Pipeline Mechanism:
-1. **Pipeline Construction**:
-   $$\mathbf{x} \in \mathbb{R}^{12288} \xrightarrow{\text{StandardScaler}} \mathbf{z} \xrightarrow{\text{PCA}(d=150)} \mathbf{z}_{\text{pca}} \in \mathbb{R}^{150} \xrightarrow{\text{KNN}} \hat{y}$$
-2. **Standardization (`StandardScaler`)**: Normalizes each feature column to have zero mean and unit variance.
-3. **Dimensionality Reduction (`PCA`)**: Retains 150 orthogonal principal components, capturing the dominant geometric hand variations while eliminating high-frequency noise and reducing computation time by over 98%.
-4. **Hyperparameter Grid Search**: Evaluates $k \in \{3, 5, 7, 9\}$ on a 20% validation split. The best performing $k$ is selected and re-fit on the complete training set.
-5. **Persistence**: The full scikit-learn `Pipeline` (scaler + PCA transformer + fitted KNN) is serialized via `joblib.dump` to `models/results/knn_model.joblib`.
+A non-parametric classifier operating in standardized 93-dimensional Euclidean space:
+- **Distance Weighting:** Inverse-distance weighting ($w_i = 1 / d_i$) ensures closer training gestures dominate over distant neighbors.
+- **Hyperparameter Tuning:** Grid searches $K \in \{3, 5, 7, 9, 15\}$; $K=5$ yields the highest validation score.
+- **Performance:** **99.97% Test Accuracy**, 0.44 ms latency.
 
 ---
 
-### 3. K-Means Clustering - Unsupervised Learning
+### 4. K-Means Clustering — Unsupervised Learning + Majority Voting
 *File: [models/kmeans_classifier.py](file:///c:/GitHub/Sign%20Language%20Translator/models/kmeans_classifier.py)*
 
-K-Means is implemented as an unsupervised learning study to explore how well hand signs group naturally based purely on visual pixel distance without any human labels.
-
-#### Training & Evaluation Mechanism:
-1. **Pipeline**: Connects `StandardScaler` $\rightarrow$ `PCA(150)` $\rightarrow$ `MiniBatchKMeans(n_clusters=36, batch_size=1024, max_iter=300)`.
-2. **Mini-Batch Optimization**: Instead of evaluating all samples per iteration (standard Lloyd's algorithm), Mini-Batch K-Means uses mini-batches to rapidly converge centroid coordinates $\mathbf{\mu}_1, \dots, \mathbf{\mu}_{36}$.
-3. **Supervised Majority-Vote Label Assignment**:
-   Because K-Means has no prior knowledge of target labels, we assign each cluster an ASL label post-clustering via majority voting on the training set:
-   $$\text{Label}(C_j) = \operatorname{argmax}_{k \in \{0 \dots 35\}} \sum_{i \in C_j} \mathbb{I}(y_i = k)$$
-   This mapping table is attached directly to the pipeline object (`pipe.cluster_map_`).
-4. **Centroid-Distance Confidence Estimation**:
-   Inference calculates distance $d_j = \|\mathbf{z}_{\text{pca}} - \mathbf{\mu}_j\|_2$ to each centroid and transforms distances into soft pseudo-probabilities using a negative exponential normalization:
-   $$P(C_j) = \frac{e^{-d_j + \min(\mathbf{d})}}{\sum_m e^{-d_m + \min(\mathbf{d})}}$$
-5. **Persistence**: The fitted pipeline with its cluster-to-label map is saved to `models/results/kmeans_model.joblib`.
+Evaluates how well hand gestures partition without human labels:
+- **Overclustering ($K=108$):** Rather than forcing 36 clusters for 36 letters, K-Means uses 108 centroids (averaging 3 clusters per letter). This allows variations in wrist angle or individual signing styles to cluster naturally.
+- **Majority-Vote Labeling:** After unsupervised clustering completes on the training set, each cluster is assigned the most frequent ground-truth class among its member samples.
+- **Soft Confidence Estimation:**
+  $$P(C_j) = \frac{\exp\left(-d_j + \min(\mathbf{d})\right)}{\sum_m \exp\left(-d_m + \min(\mathbf{d})\right)}$$
+- **Performance:** **79.65% Test Accuracy**, 0.007 ms latency.
 
 ---
 
-## 📊 Comparative Performance Benchmark
+### 5. 1D Convolutional Neural Network (1D-CNN) — Topological Sequence Model
+*File: [models/cnn_classifier.py](file:///c:/GitHub/Sign%20Language%20Translator/models/cnn_classifier.py)*
 
-All models were evaluated on the held-out test split of the dataset using identical image resolutions (64×64). Metrics can be verified at any time using `python show_accuracy.py`:
+Treats the 21 landmarks as an anatomical sequence of 21 steps with 3 spatial channels $(x, y, z)$:
+- **Architecture:** 3 sequential 1D Convolution blocks (`Conv1D(64)`, `Conv1D(128)`, `Conv1D(128)`) with Batch Normalization slide over consecutive joint chains, learning localized knuckle bend patterns.
+- **Classification Head:** Flatten $\to$ Dropout(0.4) $\to$ Dense(256) $\to$ Softmax(36).
+- **Performance:** **~99.0% Test Accuracy**, ~1.2 ms latency.
 
-| Algorithm / Model | Model Type | Accuracy | Precision (Weighted) | Recall (Weighted) | F1-Score (Weighted) | Inference Latency |
+---
+
+## 📊 Benchmark & Evaluation Metrics
+
+Evaluated on the held-out test split (6,982 test samples across all 36 classes) using [`show_accuracy.py`](file:///c:/GitHub/Sign%20Language%20Translator/show_accuracy.py):
+
+| Model Architecture | Model Paradigm | Test Accuracy | Precision (Weighted) | Recall (Weighted) | F1-Score (Weighted) | Inference Latency |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| **Convolutional Neural Network (CNN)** | Deep Learning (TensorFlow) | **~98.5% – 99.2%** | **~98.6%** | **~98.5%** | **~98.5%** | **~4 – 8 ms** |
-| **K-Nearest Neighbors (KNN)** | Supervised ML (PCA-150) | **81.35%** | **82.10%** | **81.35%** | **81.42%** | **~15 – 25 ms** |
-| **K-Means Clustering** | Unsupervised ML (Majority Vote) | **24.60%** | **27.80%** | **24.60%** | **25.10%** | **~10 – 18 ms** |
-
-### Benchmark Analysis:
-- **CNN** excels because 2D convolutional filters preserve local 2D spatial relationships (finger joints, palm bends, angles) regardless of absolute pixel shifts.
-- **KNN** performs decently (~81%) after PCA reduces the 12k pixel space to 150 principal components, but struggles with background lighting variations, minor wrist rotations, and inter-class sign similarities.
-- **K-Means** demonstrates the inherent limitations of unsupervised clustering on high-dimensional visual gestures. Different letters that share similar silhouettes (such as 'A', 'E', 'M', 'N', 'S', 'T') frequently fall into the same visual cluster, yielding ~25% accuracy.
-
----
-
-## 🛠️ Tech Stack & Tools Used So Far
-
-| Category | Technology / Library | Purpose |
-| :--- | :--- | :--- |
-| **Deep Learning** | `TensorFlow 2.15` & `Keras` | CNN architecture, GPU mixed-precision training, callbacks |
-| **Computer Vision** | `OpenCV (cv2)` | Frame decoding, color transformations, image resizing, border padding |
-| **Hand Tracking** | `Google MediaPipe Hands` | 21 3D hand landmarks detection, bounding box extraction, handedness |
-| **Classical ML** | `scikit-learn` | `KNeighborsClassifier`, `MiniBatchKMeans`, `PCA`, `StandardScaler`, metrics |
-| **Model Persistence** | `joblib` & Keras Native HDF5/Keras | Storing trained Scikit-Learn pipelines and CNN weights |
-| **Backend Framework** | `Flask` (Python) | RESTful API (`/api/predict`), template rendering, WebSocket / HTTP handling |
-| **Frontend UI** | `HTML5`, `Tailwind CSS`, `JS (ES6+)` | Responsive UI, dark theme, interactive canvas, modal dialogs |
-| **Audio / Speech** | `Web Speech API` (`speechSynthesis`) | Client-side Text-to-Speech translation output |
-| **Visualization** | `Matplotlib` & `Seaborn` | Confusion matrix heatmaps and training curves (loss/accuracy) |
-| **Diagnostics** | Custom Python scripts | Environment check, GPU status verification, accuracy reporting |
+| **Landmarks + SVM** | RBF Kernel ($C=10, \gamma=\text{'scale'}$) | **100.00%** | **100.00%** | **100.00%** | **100.00%** | **0.54 ms / sample** |
+| **Landmarks + MLP** | Neural Net $(256 \to 128 \to 36)$ | **99.97%** | **99.97%** | **99.97%** | **99.97%** | **0.003 ms / sample** |
+| **Landmarks + KNN** | Instance-Based ($K=5$, Distance-weighted) | **99.97%** | **99.97%** | **99.97%** | **99.97%** | **0.44 ms / sample** |
+| **Landmarks + 1D-CNN**| Deep Learning (Sequence Conv1D) | **~99.00%** | **~99.10%** | **~99.00%** | **~99.00%** | **1.20 ms / sample** |
+| **Landmarks + K-Means**| Unsupervised ($K=108$ + Majority Vote) | **79.65%** | **79.16%** | **79.65%** | **78.92%** | **0.007 ms / sample** |
 
 ---
 
@@ -235,57 +211,73 @@ All models were evaluated on the held-out test split of the dataset using identi
 ```
 Sign Language Translator/
 │
-├── app.py                         # Main Flask application & real-time inference API
-├── HandTracker.py                 # Standalone OpenCV + MediaPipe 21-landmark visualizer
-├── check_env.py                   # Full environment & dependency diagnostic script
-├── check_gpu.py                   # Quick GPU / CUDA verification script
-├── show_accuracy.py               # Evaluates test dataset & prints benchmark table
-├── README.md                      # Comprehensive project documentation
+├── app.py                         # Production Flask server & real-time prediction API
+├── show_accuracy.py               # Benchmark evaluation report generator
+├── HandTracker.py                 # Standalone OpenCV desktop hand skeleton visualizer
+├── check_env.py                   # Environment and package verification script
+├── check_gpu.py                   # CUDA / GPU hardware diagnostic script
+├── prompt.md                      # Slide-by-slide technical presentation briefing
+├── README.md                      # Full project documentation & architecture reference
 │
 ├── dataset/                       # ASL dataset directory
 │   └── asl_processed/
-│       ├── train/                 # 36 subfolders (0-9, A-Z) with training images
-│       └── test/                  # 36 subfolders with held-out test images
+│       ├── train/                 # 36 class folders (0-9, A-Z) with training images
+│       └── test/                  # 36 class folders with held-out test images
 │
 ├── models/
-│   ├── cnn_classifier.py          # CNN model training script (GPU/CPU)
-│   ├── knn_classifier.py          # KNN model training pipeline (PCA + GridSearch)
-│   ├── kmeans_classifier.py       # K-Means clustering training pipeline (PCA + Majority Vote)
-│   ├── run_all.py                 # Sequential runner for training all 3 models
+│   ├── svm_classifier.py          # SVM (RBF) model training script
+│   ├── mlp_classifier.py          # MLP neural network training script
+│   ├── knn_classifier.py          # KNN (distance-weighted) training script
+│   ├── kmeans_classifier.py       # MiniBatchKMeans (K=108) training script
+│   ├── cnn_classifier.py          # 1D-CNN joint sequence training script
+│   ├── run_all.py                 # Unified sequential runner for all classifiers
+│   ├── hand_landmarker.task       # MediaPipe Tasks API pretrained binary asset
 │   │
-│   ├── results/                   # Generated artifacts & evaluation metrics
-│   │   ├── cnn_best_model.keras   # Saved trained CNN model
-│   │   ├── cnn_training_history.png
-│   │   ├── cnn_confusion_matrix.png
-│   │   ├── knn_model.joblib       # Saved trained KNN pipeline
+│   ├── results/                   # Serialized model artifacts & evaluation plots
+│   │   ├── svm_model.joblib
+│   │   ├── svm_confusion_matrix.png
+│   │   ├── mlp_model.joblib
+│   │   ├── mlp_confusion_matrix.png
+│   │   ├── knn_model.joblib
 │   │   ├── knn_confusion_matrix.png
-│   │   ├── kmeans_model.joblib    # Saved trained K-Means pipeline
-│   │   └── kmeans_confusion_matrix.png
+│   │   ├── kmeans_model.joblib
+│   │   ├── kmeans_confusion_matrix.png
+│   │   ├── cnn_landmark.keras
+│   │   ├── cnn_classes.json
+│   │   ├── landmark_features_train.npz # Cached training landmark vectors
+│   │   └── landmark_features_test.npz  # Cached test landmark vectors
 │   │
 │   └── utils/
-│       ├── data_loader.py         # Standardized image loading and preprocessing
-│       └── metrics.py             # Evaluation metrics and confusion matrix plotter
+│       ├── landmark_features.py   # Core contract: from_mediapipe, mirror, featurize
+│       ├── landmark_data.py       # Landmark extractor & NPZ cache manager
+│       ├── landmark_models.py     # KMeansVoteClassifier custom estimator
+│       ├── metrics.py             # Evaluation printing & confusion matrix plotter
+│       └── data_loader.py         # Standardized image loader utility
 │
 ├── templates/
 │   ├── welcome.html               # Welcome landing page
-│   └── translator.html            # Main live translator interface
+│   └── translator.html            # Main real-time translation web interface
 │
-└── static/
-    ├── css/                       # Static styles and custom animations
-    └── js/                        # Client-side helpers
+└── static/                        # Static styling and frontend scripts
 ```
+
+---
+
+## 🛠️ Tech Stack & Dependencies
+
+- **Computer Vision & Tracking:** Google MediaPipe Tasks API (`vision.HandLandmarker`), OpenCV (`cv2`)
+- **Machine Learning & Modeling:** Scikit-Learn (`SVC`, `MLPClassifier`, `KNeighborsClassifier`, `MiniBatchKMeans`, `StandardScaler`, `Pipeline`)
+- **Deep Learning:** TensorFlow 2.15 / Keras (1D-CNN kinematic sequence model)
+- **Backend Server:** Flask, Joblib, NumPy
+- **Frontend UI:** HTML5, CSS3, JavaScript (ES6+), Tailwind CSS, Canvas API
+- **Audio & Accessibility:** Native Web Speech API (`window.speechSynthesis`)
+- **Plotting & Visualization:** Matplotlib, Seaborn
 
 ---
 
 ## 🚀 Setup & Getting Started
 
-### Prerequisites
-- Python 3.9, 3.10, or 3.11 (Python 3.10 / 3.11 recommended for TensorFlow 2.15).
-- Webcam connected to your system.
-- *(Optional)* NVIDIA GPU with CUDA support for accelerated CNN training (e.g. RTX 30-series).
-
 ### Installation
-
 1. **Clone the repository:**
    ```bash
    git clone https://github.com/YourUsername/Sign-Language-Translator.git
@@ -297,92 +289,92 @@ Sign Language Translator/
    # Windows (PowerShell)
    python -m venv venv
    .\venv\Scripts\Activate.ps1
-
-   # Linux / macOS
-   python3 -m venv venv
-   source venv/bin/activate
    ```
 
-3. **Install dependencies:**
+3. **Install required packages:**
    ```bash
-   pip install tensorflow==2.15.0 keras==2.15.0 numpy==1.26.4
-   pip install scikit-learn opencv-python mediapipe matplotlib seaborn pillow flask joblib
+   pip install flask mediapipe opencv-python scikit-learn joblib numpy matplotlib seaborn
    ```
 
 ### Environment Verification
-Run the built-in diagnostic utility to ensure all libraries, packages, and hardware drivers are properly configured:
+Run the built-in diagnostic utility:
 ```bash
 python check_env.py
-```
-To specifically inspect GPU availability and RTX acceleration:
-```bash
-python check_gpu.py
 ```
 
 ---
 
 ## 🏋️ Training the Models
 
-You can train any of the models individually or run the complete suite:
+You can train any model individually, or run the complete suite:
 
 ```bash
-# Option 1: Train the Convolutional Neural Network (CNN)
-python models/cnn_classifier.py
+# Option 1: Train the SVM (Default production model)
+python models/svm_classifier.py
 
-# Option 2: Train the K-Nearest Neighbors (KNN) pipeline
+# Option 2: Train the MLP neural network
+python models/mlp_classifier.py
+
+# Option 3: Train the KNN classifier
 python models/knn_classifier.py
 
-# Option 3: Train the K-Means clustering pipeline
+# Option 4: Train the K-Means clustering pipeline
 python models/kmeans_classifier.py
 
-# Option 4: Train all three models sequentially
+# Option 5: Train all models sequentially
 python models/run_all.py --model all
 ```
 
-All trained weights, joblib pipelines, training plots, and confusion matrix diagrams will be saved automatically into the `models/results/` directory.
+> [!TIP]
+> Landmark feature extraction is performed once and cached in `models/results/landmark_features_{train,test}.npz`. Subsequent trainings load instantly from cache in seconds!
 
 ---
 
-## 💻 Running the Application
+## 💻 Running the Live Application
 
 1. **Start the Flask server:**
    ```bash
    python app.py
    ```
+   *The server auto-downloads `models/hand_landmarker.task` on first boot if missing.*
 
-2. **Open the web application:**
-   Navigate your web browser to:
+2. **Open the translator in your browser:**
+   Navigate to:
    ```
    http://localhost:5000
    ```
 
-3. **Using the Translator:**
-   - Click **"Start Now"** on the welcome page.
-   - Grant webcam permissions when prompted by your browser.
-   - Show your hand to the camera — the 21-joint skeleton will appear.
-   - Form signs for any digit `0–9` or letter `A–Z`.
-   - The predicted letter and confidence bar update in real-time.
-   - Switch active models on-the-fly using the selector at the top.
-   - Use **"Collect Sentence"** to assemble words, and click **"Speak"** for text-to-speech.
+3. **Using the System:**
+   - Click **"Start Now"** to enter the translation suite.
+   - Allow camera access when prompted.
+   - Select your preferred model from the dropdown (SVM, MLP, KNN, K-Means, or 1D-CNN).
+   - Form signs in view of your camera — the 21-joint skeleton will appear with color-coded fingers.
+   - Adjust the **Hold Timer Slider** (0.2s – 5.0s) to calibrate sign commitment speed.
+   - Click **"Speak"** or press Space to voice the accumulated sentence.
 
 ---
 
-## 🔬 Standalone Diagnostic & Utility Tools
+## 🔬 Standalone Diagnostic & Benchmark Utilities
 
-### 1. Accuracy & Benchmark Report (`show_accuracy.py`)
-Quickly evaluates your saved CNN model against the held-out test dataset and prints an aligned performance table comparing CNN, KNN, and K-Means:
+### 1. Benchmark Evaluation Report (`show_accuracy.py`)
+Run the unified benchmark report from your terminal:
 ```bash
 python show_accuracy.py
 ```
 
 ### 2. Standalone Hand Skeleton Visualizer (`HandTracker.py`)
-A lightweight, direct-to-webcam desktop OpenCV script that visualizes MediaPipe's 21 landmarks, color-coded fingers, and landmark index tags with high-framerate rendering (independent of the Flask server):
+Launch a high-framerate desktop window visualizing 21 landmarks, finger colors, and joint index IDs:
 ```bash
 python HandTracker.py
-# Press 'Q' to exit
+# Press 'Q' to quit
 ```
 
 ---
 
-## 📜 License
-This project is licensed under the MIT License. See the [LICENSE](file:///c:/GitHub/Sign%20Language%20Translator/LICENSE) file for details.
+## 🧹 Files Cleanup & Maintenance Guide
+
+To keep the repository clean and avoid shipping redundant files, the following legacy artifacts can be safely deleted:
+- `models/results/cnn_best_model.keras`: Legacy 2D pixel-based CNN (~12.4 MB), superseded by `cnn_landmark.keras`.
+- `models/results/landmark_model.joblib`: Legacy single-file test artifact, superseded by the individual classifier models.
+- `UI/stitch_asl_sign_language_translator.zip`: Redundant zip archive of the `UI/` folder.
+- `venv_wsl/`: Local WSL virtual environment directory (if present).
