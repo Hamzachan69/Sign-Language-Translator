@@ -20,17 +20,38 @@ from types import SimpleNamespace
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1")
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
-try:
-    import numpy as np
-    import cv2
-    import joblib
-    import mediapipe as mp
-    from mediapipe.tasks import python as mp_python
-    from mediapipe.tasks.python import vision
-    from flask import Flask, render_template, request, jsonify
-except ImportError as e:
-    sys.exit(f"[FAIL] Missing package '{e.name}'.\n"
-             f"       Fix: pip install flask mediapipe opencv-python scikit-learn joblib numpy")
+# Ensure required Python packages are installed before importing them
+import subprocess, sys, os
+
+def ensure_package(module_name, pip_name=None):
+    """Attempt to import a module; if missing, install it via pip and import again."""
+    try:
+        __import__(module_name)
+    except ImportError:
+        package = pip_name if pip_name else module_name
+        print(f"[INFO] Installing missing package: {package}")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+        __import__(module_name)
+
+# List of required packages (module name, pip name if different)
+required_packages = [
+    ("numpy", None),
+    ("cv2", "opencv-python"),
+    ("joblib", None),
+    ("mediapipe", None),
+    ("flask", None),
+]
+for mod, pip in required_packages:
+    ensure_package(mod, pip)
+
+# Now safe to import the modules
+import numpy as np
+import cv2
+import joblib
+import mediapipe as mp
+from mediapipe.tasks import python as mp_python
+from mediapipe.tasks.python import vision
+from flask import Flask, render_template, request, jsonify
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT / "models"))
